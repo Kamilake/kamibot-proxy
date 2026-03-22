@@ -151,7 +151,7 @@ impl From<Cache> for ResourceType {
         }
 
         if cache.current_member {
-            resource_types |= Self::MEMBER_CURRENT;
+            resource_types |= Self::USER_CURRENT;
         }
 
         if cache.members {
