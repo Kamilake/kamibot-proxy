@@ -40,7 +40,7 @@ impl Guilds {
         Self(cache)
     }
 
-    pub fn update(&self, value: impl UpdateCache<DefaultCacheModels>) {
+    pub fn update(&self, value: &impl UpdateCache<DefaultCacheModels>) {
         self.0.update(value);
     }
 
@@ -77,15 +77,7 @@ impl Guilds {
             .0
             .iter()
             .guilds()
-            .filter_map(|guild| {
-                if guild.unavailable() == Some(true) {
-                    // Will be part of unavailable_guilds iterator
-                    None
-                } else {
-                    Some(guild_id_to_json(guild.id()))
-                }
-            })
-            .chain(self.0.iter().unavailable_guilds().map(guild_id_to_json))
+            .map(|guild| guild_id_to_json(guild.id()))
             .collect();
 
         ready.insert(String::from("guilds"), OwnedValue::Array(guilds.into()));
@@ -174,6 +166,8 @@ impl Guilds {
 
         Some(Member {
             avatar: member.avatar(),
+            avatar_decoration_data: None,
+            banner: None,
             communication_disabled_until: member.communication_disabled_until(),
             deaf: member.deaf().unwrap_or_default(),
             flags: member.flags(),
