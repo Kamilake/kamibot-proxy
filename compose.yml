@@ -1,0 +1,12 @@
+services:
+  gateway-proxy:
+    build:
+      context: .
+      args:
+        TARGET_CPU: rocketlake
+    container_name: gateway-proxy
+    restart: unless-stopped
+    volumes:
+      - ./config.json:/config.json:ro
+    ports:
+      - "7878:7878"
