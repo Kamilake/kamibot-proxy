@@ -91,7 +91,8 @@ impl From<Cache> for EventTypeFlags {
             | Self::GATEWAY_INVALIDATE_SESSION;
 
         if cache.members || cache.current_member {
-            flags |= Self::MEMBER_ADD | Self::MEMBER_REMOVE | Self::MEMBER_UPDATE;
+            flags |=
+                Self::MEMBER_ADD | Self::MEMBER_REMOVE | Self::MEMBER_UPDATE | Self::MEMBER_CHUNK;
         }
 
         if cache.roles {
