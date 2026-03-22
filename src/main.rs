@@ -58,6 +58,11 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
     clippy::redundant_pub_crate
 )]
 async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Install rustls crypto provider (required since rustls 0.23)
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let level_filter = LevelFilter::from_str(&CONFIG.log_level).unwrap_or(LevelFilter::INFO);
     let (reload_level_filter, reload_handle) = reload::Layer::new(level_filter);
     let fmt_layer = tracing_subscriber::fmt::layer();
