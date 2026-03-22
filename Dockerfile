@@ -9,7 +9,7 @@ ENV RUSTFLAGS "-Lnative=/usr/lib -C target-cpu=${TARGET_CPU}"
 
 RUN apk upgrade && \
     apk add curl gcc g++ musl-dev cmake make && \
-    curl -sSf https://sh.rustup.rs | sh -s -- --profile minimal --component rust-src --default-toolchain nightly -y
+    curl -sSf https://sh.rustup.rs | sh -s -- --profile minimal --component rust-src --default-toolchain nightly-2025-06-12 -y
 
 WORKDIR /build
 
@@ -37,8 +37,30 @@ RUN source $HOME/.cargo/env && \
     cp target/$RUST_TARGET/release/gateway-proxy /gateway-proxy && \
     strip /gateway-proxy
 
-FROM scratch
+FROM docker.io/library/alpine:edge
+
+RUN apk add --no-cache \
+    tini \
+    busybox-extras \
+    curl \
+    wget \
+    bind-tools \
+    net-tools \
+    iproute2 \
+    iputils \
+    tcpdump \
+    strace \
+    ltrace \
+    lsof \
+    htop \
+    procps \
+    jq \
+    vim \
+    less \
+    file \
+    gdb
 
 COPY --from=builder /gateway-proxy /gateway-proxy
 
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["./gateway-proxy"]
