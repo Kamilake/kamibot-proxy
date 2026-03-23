@@ -13,11 +13,15 @@ use twilight_model::{
         presence::{Presence, UserOrId},
         OpCode,
     },
-    guild::{scheduled_event::GuildScheduledEvent, Emoji, Guild, Member, Role},
+    guild::{
+        scheduled_event::GuildScheduledEvent, Emoji, Guild, Member, MemberFlags, Permissions,
+        Role, RoleColors, RoleFlags,
+    },
     id::{
-        marker::{GuildMarker, UserMarker},
+        marker::{GuildMarker, RoleMarker, UserMarker},
         Id,
     },
+    user::User,
     voice::VoiceState,
 };
 
@@ -182,7 +186,8 @@ impl Guilds {
     }
 
     fn members_in_guild(&self, guild_id: Id<GuildMarker>) -> Vec<Member> {
-        self.0
+        let mut members: Vec<Member> = self
+            .0
             .guild_members(guild_id)
             .map(|reference| {
                 reference
@@ -190,11 +195,63 @@ impl Guilds {
                     .filter_map(|user_id| self.member(guild_id, *user_id))
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        // Ensure the bot's own member is always included in the members list.
+        // JDA (and other libraries) expect the bot user to be present in
+        // GUILD_CREATE members to initialise selfMember; if it is missing,
+        // subsequent events like VOICE_STATE_UPDATE will fail.
+        if let Some(current_user) = self.0.current_user() {
+            let bot_id = current_user.id;
+            if !members.iter().any(|m| m.user.id == bot_id) {
+                // Try the cache first; if MEMBER resource type is disabled the
+                // member won't be cached, so fall back to a synthetic member
+                // built from the CurrentUser stored in the READY payload.
+                let bot_member = self.member(guild_id, bot_id).unwrap_or_else(|| Member {
+                    avatar: None,
+                    avatar_decoration_data: None,
+                    banner: None,
+                    communication_disabled_until: None,
+                    deaf: false,
+                    flags: MemberFlags::empty(),
+                    joined_at: None,
+                    mute: false,
+                    nick: None,
+                    pending: false,
+                    premium_since: None,
+                    roles: Vec::new(),
+                    user: User {
+                        accent_color: None,
+                        avatar: current_user.avatar,
+                        avatar_decoration: None,
+                        avatar_decoration_data: None,
+                        banner: current_user.banner,
+                        bot: current_user.bot,
+                        discriminator: current_user.discriminator,
+                        email: None,
+                        flags: None,
+                        global_name: current_user.global_name.clone(),
+                        id: current_user.id,
+                        locale: None,
+                        mfa_enabled: None,
+                        name: current_user.name.clone(),
+                        premium_type: None,
+                        primary_guild: None,
+                        public_flags: current_user.public_flags,
+                        system: None,
+                        verified: None,
+                    },
+                });
+                members.push(bot_member);
+            }
+        }
+
+        members
     }
 
     fn roles_in_guild(&self, guild_id: Id<GuildMarker>) -> Vec<Role> {
-        self.0
+        let mut roles: Vec<Role> = self
+            .0
             .guild_roles(guild_id)
             .map(|reference| {
                 reference
@@ -202,7 +259,36 @@ impl Guilds {
                     .filter_map(|role_id| Some(self.0.role(*role_id)?.value().resource().clone()))
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        // Ensure the @everyone role is always present. Its ID equals the guild
+        // ID. JDA and other libraries rely on this role for permission
+        // calculations; a missing @everyone role causes NullPointerExceptions.
+        let everyone_role_id: Id<RoleMarker> = guild_id.cast();
+        if !roles.iter().any(|r| r.id == everyone_role_id) {
+            #[allow(deprecated)]
+            roles.push(Role {
+                color: 0,
+                colors: RoleColors {
+                    primary_color: 0,
+                    secondary_color: None,
+                    tertiary_color: None,
+                },
+                hoist: false,
+                icon: None,
+                id: everyone_role_id,
+                managed: false,
+                mentionable: false,
+                name: String::from("@everyone"),
+                permissions: Permissions::empty(),
+                position: 0,
+                flags: RoleFlags::empty(),
+                tags: None,
+                unicode_emoji: None,
+            });
+        }
+
+        roles
     }
 
     fn scheduled_events_in_guild(&self, guild_id: Id<GuildMarker>) -> Vec<GuildScheduledEvent> {
