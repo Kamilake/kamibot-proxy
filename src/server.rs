@@ -368,6 +368,7 @@ fn handler(
     match (request.method(), request.uri().path()) {
         (&Method::GET, "/metrics") => Response::builder()
             .status(StatusCode::OK)
+            .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
             .body(Full::from(metrics.render()))
             .unwrap(),
         (&Method::GET, "/shard-count") => {
