@@ -1,11 +1,22 @@
-# I will only support x86_64 hosts because this allows for best hardware optimizations.
-# Compiling a Dockerfile for aarch64 should work but I won't support it myself.
+# Multi-architecture build support (amd64 + arm64)
+# For amd64: uses SIMD optimizations (AVX2/SSE4.2) with TARGET_CPU tuning
+# For arm64: uses SIMD optimizations (NEON)
 ARG TARGET_CPU="haswell"
 
 FROM docker.io/library/alpine:edge AS builder
 ARG TARGET_CPU
-ENV RUST_TARGET "x86_64-unknown-linux-musl"
-ENV RUSTFLAGS "-Lnative=/usr/lib -C target-cpu=${TARGET_CPU}"
+ARG TARGETARCH
+
+# Set Rust target and flags based on architecture
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        echo "aarch64-unknown-linux-musl" > /tmp/rust_target; \
+        echo "-Lnative=/usr/lib" > /tmp/rustflags; \
+    else \
+        echo "x86_64-unknown-linux-musl" > /tmp/rust_target; \
+        echo "-Lnative=/usr/lib -C target-cpu=${TARGET_CPU}" > /tmp/rustflags; \
+    fi
+
+ENV RUSTFLAGS_FILE="/tmp/rustflags"
 
 RUN apk upgrade && \
     apk add curl gcc g++ musl-dev cmake make && \
@@ -18,18 +29,22 @@ COPY .cargo ./.cargo/
 
 RUN mkdir src/
 RUN echo 'fn main() {}' > ./src/main.rs
-RUN source $HOME/.cargo/env && \
-    if [ "$TARGET_CPU" == 'x86-64' ]; then \
+RUN export RUST_TARGET=$(cat /tmp/rust_target) && \
+    export RUSTFLAGS=$(cat /tmp/rustflags) && \
+    source $HOME/.cargo/env && \
+    if [ "$TARGET_CPU" = "x86-64" ]; then \
         cargo build --release --target="$RUST_TARGET" --no-default-features --features no-simd; \
     else \
         cargo build --release --target="$RUST_TARGET"; \
     fi
 
-RUN rm -f target/$RUST_TARGET/release/deps/gateway_proxy*
+RUN rm -f target/*/release/deps/gateway_proxy*
 COPY ./src ./src
 
-RUN source $HOME/.cargo/env && \
-    if [ "$TARGET_CPU" == 'x86-64' ]; then \
+RUN export RUST_TARGET=$(cat /tmp/rust_target) && \
+    export RUSTFLAGS=$(cat /tmp/rustflags) && \
+    source $HOME/.cargo/env && \
+    if [ "$TARGET_CPU" = "x86-64" ]; then \
         cargo build --release --target="$RUST_TARGET" --no-default-features --features no-simd; \
     else \
         cargo build --release --target="$RUST_TARGET"; \
