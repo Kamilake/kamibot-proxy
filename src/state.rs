@@ -4,7 +4,10 @@ use twilight_gateway::MessageSender;
 
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicU64, AtomicU8},
+        Arc, RwLock,
+    },
 };
 
 use crate::{cache, dispatch::BroadcastMessage, model::JsonObject};
@@ -62,6 +65,10 @@ pub struct Shard {
     pub ready: Ready,
     /// Cache for guilds on this shard.
     pub guilds: cache::Guilds,
+    /// Connection status: 0=FatallyClosed, 1=Disconnected, 2=Identifying, 3=Resuming, 4=Active
+    pub connection_status: AtomicU8,
+    /// Heartbeat latency in nanoseconds (`u64::MAX` = unknown)
+    pub latency_ns: AtomicU64,
 }
 
 /// A session initiated by a client.

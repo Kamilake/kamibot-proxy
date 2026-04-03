@@ -159,7 +159,20 @@ pub fn update_shard_statistics(
         ConnectionState::FatallyClosed { .. } => 0.0,
     };
 
+    // Store in shard state for /health endpoint
+    #[allow(clippy::cast_sign_loss)]
+    shard_state
+        .connection_status
+        .store(connection_status as u8, Ordering::Relaxed);
+
     let latency = latencies.first().map_or(f64::NAN, Duration::as_secs_f64);
+
+    let latency_ns = latencies
+        .first()
+        .map_or(u64::MAX, |d| d.as_nanos() as u64);
+    shard_state
+        .latency_ns
+        .store(latency_ns, Ordering::Relaxed);
 
     metrics::histogram!("gateway_shard_latency_histogram", "shard" => shard_id.to_string())
         .record(latency);

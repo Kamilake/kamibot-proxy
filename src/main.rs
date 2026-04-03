@@ -148,6 +148,8 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             events: broadcast_tx.clone(),
             ready,
             guilds: guild_cache,
+            connection_status: std::sync::atomic::AtomicU8::new(0),
+            latency_ns: std::sync::atomic::AtomicU64::new(u64::MAX),
         });
 
         // Now pipe the events into the broadcast

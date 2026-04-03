@@ -9,6 +9,7 @@ use hyper_util::{
 };
 use itoa::Buffer;
 use metrics_exporter_prometheus::PrometheusHandle;
+use serde::Serialize;
 #[cfg(not(feature = "simd-json"))]
 use serde_json::{to_string, Value as OwnedValue};
 #[cfg(feature = "simd-json")]
@@ -25,7 +26,12 @@ use tokio::{
 use tokio_websockets::{Error, Limits, Message, ServerBuilder};
 use tracing::{debug, error, info, trace, warn};
 
-use std::{convert::Infallible, future::ready, net::SocketAddr, sync::Arc};
+use std::{
+    convert::Infallible,
+    future::ready,
+    net::SocketAddr,
+    sync::{atomic::Ordering, Arc},
+};
 
 use crate::{
     config::CONFIG,
@@ -38,6 +44,90 @@ use crate::{
 const HELLO: &str = r#"{"t":null,"s":null,"op":10,"d":{"heartbeat_interval":41250}}"#;
 const HEARTBEAT_ACK: &str = r#"{"t":null,"s":null,"op":11,"d":null}"#;
 const INVALID_SESSION: &str = r#"{"t":null,"s":null,"op":9,"d":false}"#;
+
+#[derive(Serialize)]
+struct HealthResponse {
+    healthy: bool,
+    shard_count: u32,
+    active_shards: u32,
+    sessions: usize,
+    shards: Vec<ShardHealth>,
+}
+
+#[derive(Serialize)]
+struct ShardHealth {
+    id: u32,
+    status: &'static str,
+    ready: bool,
+    latency_ms: Option<f64>,
+    guilds: usize,
+    members: usize,
+    channels: usize,
+}
+
+const fn status_name(status: u8) -> &'static str {
+    match status {
+        4 => "active",
+        3 => "resuming",
+        2 => "identifying",
+        1 => "disconnected",
+        _ => "fatally_closed",
+    }
+}
+
+fn build_health_response(state: &State) -> (StatusCode, String) {
+    let mut shards = Vec::with_capacity(state.shards.len());
+    let mut active_count = 0u32;
+
+    for shard in &state.shards {
+        let status = shard.connection_status.load(Ordering::Relaxed);
+        let raw_latency = shard.latency_ns.load(Ordering::Relaxed);
+        let is_ready = shard.ready.is_ready();
+        let cache_stats = shard.guilds.stats();
+
+        if status == 4 {
+            active_count += 1;
+        }
+
+        let latency_ms = if raw_latency == u64::MAX {
+            None
+        } else {
+            Some(raw_latency as f64 / 1_000_000.0)
+        };
+
+        shards.push(ShardHealth {
+            id: shard.id,
+            status: status_name(status),
+            ready: is_ready,
+            latency_ms,
+            guilds: cache_stats.guilds(),
+            members: cache_stats.members(),
+            channels: cache_stats.channels(),
+        });
+    }
+
+    let sessions = state.sessions.read().unwrap().len();
+
+    let healthy = active_count == state.shard_count;
+
+    let response = HealthResponse {
+        healthy,
+        shard_count: state.shard_count,
+        active_shards: active_count,
+        sessions,
+        shards,
+    };
+
+    let status_code = if healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    let body = to_string(&response).unwrap_or_default();
+
+    (status_code, body)
+}
 const RESUMED: &str = r#"{"t":"RESUMED","s":null,"op":0,"d":{}}"#;
 
 const TRAILER: [u8; 4] = [0x00, 0x00, 0xff, 0xff];
@@ -371,6 +461,15 @@ fn handler(
             .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
             .body(Full::from(metrics.render()))
             .unwrap(),
+        (&Method::GET, "/health") => {
+            let (status_code, body) = build_health_response(&state);
+
+            Response::builder()
+                .status(status_code)
+                .header("Content-Type", "application/json")
+                .body(Full::from(body))
+                .unwrap()
+        }
         (&Method::GET, "/shard-count") => {
             let mut buffer = itoa::Buffer::new();
             let shard_count_str = buffer.format(state.shard_count);
